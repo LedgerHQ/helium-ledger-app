@@ -25,7 +25,8 @@ enum Error {
 }
 
 pub fn get_pubkey(display: PubkeyDisplay) -> Result<PubKeyBin> {
-    let ledger = LedgerApp::new()?;
+    let mut ledger = LedgerApp::new()?;
+    ledger.set_logging(true);
     exchange_get_pubkey(&ledger, display)
 }
 
@@ -122,9 +123,7 @@ fn read_from_ledger(
     ledger: &LedgerApp,
     command: ApduCommand,
 ) -> std::result::Result<ledger::ApduAnswer, Error> {
-    let answer = ledger
-        .exchange(command)
-        .or(Err(Error::CouldNotFindLedger))?;
+    let answer = ledger.exchange(command).unwrap();
 
     if answer.data.is_empty() {
         Err(Error::AppNotRunning)
