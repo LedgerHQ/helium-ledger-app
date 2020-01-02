@@ -1,7 +1,7 @@
 use helium_api::Client;
 use ledger::*;
 
-use crate::{hnt::Hnt, pubkeybin::PubKeyBin, pubkeybin::B58, Result, payment_txn::PaymentTxn};
+use crate::{hnt::Hnt, payment_txn::PaymentTxn, pubkeybin::PubKeyBin, pubkeybin::B58, Result};
 use byteorder::{LittleEndian as LE, WriteBytesExt};
 use helium_proto::txn::{TxnPaymentV1, Wrapper};
 use prost::Message;

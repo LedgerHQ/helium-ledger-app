@@ -3,8 +3,8 @@ extern crate prettytable;
 
 mod hnt;
 mod ledger_api;
-mod pubkeybin;
 mod payment_txn;
+mod pubkeybin;
 
 use hnt::Hnt;
 use ledger_api::*;
@@ -117,11 +117,6 @@ use payment_txn::PaymentTxn;
 pub fn print_txn(txn: &PaymentTxn) {
     let mut table = Table::new();
     table.add_row(row!["Payee", "Amount HNT", "Nonce", "Hash"]);
-    table.add_row(row![
-        txn.payee,
-        txn.amount,
-        txn.nonce,
-        txn.hash
-    ]);
+    table.add_row(row![txn.payee, txn.amount, txn.nonce, txn.hash]);
     table.printstd();
 }

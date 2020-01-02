@@ -53,7 +53,7 @@ const LEDGER_USAGE_PAGE: u16 = 0xFFA0;
 const LEDGER_CHANNEL: u16 = 0x0101;
 const LEDGER_PACKET_SIZE: u8 = 64;
 
-const LEDGER_TIMEOUT: i32 = 10_000_000;
+const LEDGER_TIMEOUT: i32 = 100_000_000;
 
 quick_error! {
     #[derive(Debug)]
@@ -71,7 +71,7 @@ quick_error! {
             description(descr)
             display("Communication Error: {}", descr)
         }
-        Apdu(descr: &'static str) {
+        Apdu(descr: String) {
             description(descr)
             display("APDU: {}", descr)
         }
@@ -162,30 +162,32 @@ impl ApduCommand {
 
 pub fn map_apdu_error(retcode: u16) -> Error {
     match retcode {
-        0x6400 => {
-            Error::Apdu("[APDU_CODE_EXECUTION_ERROR] No information given (NV-Ram not changed)")
+        0x6400 => Error::Apdu(
+            "[APDU_CODE_EXECUTION_ERROR] No information given (NV-Ram not changed)".into(),
+        ),
+        0x6700 => Error::Apdu("[APDU_CODE_WRONG_LENGTH] Wrong length".into()),
+        0x6982 => Error::Apdu("[APDU_CODE_EMPTY_BUFFER]".into()),
+        0x6983 => Error::Apdu("[APDU_CODE_OUTPUT_BUFFER_TOO_SMALL]".into()),
+        0x6984 => {
+            Error::Apdu("[APDU_CODE_DATA_INVALID] data reversibly blocked (invalidated)".into())
         }
-        0x6700 => Error::Apdu("[APDU_CODE_WRONG_LENGTH] Wrong length"),
-        0x6982 => Error::Apdu("[APDU_CODE_EMPTY_BUFFER]"),
-        0x6983 => Error::Apdu("[APDU_CODE_OUTPUT_BUFFER_TOO_SMALL]"),
-        0x6984 => Error::Apdu("[APDU_CODE_DATA_INVALID] data reversibly blocked (invalidated)"),
-        0x6985 => {
-            Error::Apdu("[APDU_CODE_CONDITIONS_NOT_SATISFIED] Conditions of use not satisfied")
-        }
-        0x6986 => {
-            Error::Apdu("[APDU_CODE_COMMAND_NOT_ALLOWED] Command not allowed (no current EF)")
-        }
-        0x6A80 => {
-            Error::Apdu("[APDU_CODE_BAD_KEY_HANDLE] The parameters in the data field are incorrect")
-        }
-        0x6B00 => Error::Apdu("[APDU_CODE_INVALIDP1P2] Wrong parameter(s) P1-P2"),
-        0x6D00 => {
-            Error::Apdu("[APDU_CODE_INS_NOT_SUPPORTED] Instruction code not supported or invalid")
-        }
-        0x6E00 => Error::Apdu("[APDU_CODE_CLA_NOT_SUPPORTED] Class not supported"),
-        0x6F00 => Error::Apdu("[APDU_CODE_UNKNOWN]"),
-        0x6F01 => Error::Apdu("[APDU_CODE_SIGN_VERIFY_ERROR]"),
-        _ => Error::Apdu("[APDU_ERROR] Unknown"),
+        0x6985 => Error::Apdu(
+            "[APDU_CODE_CONDITIONS_NOT_SATISFIED] Conditions of use not satisfied".into(),
+        ),
+        0x6986 => Error::Apdu(
+            "[APDU_CODE_COMMAND_NOT_ALLOWED] Command not allowed (no current EF)".into(),
+        ),
+        0x6A80 => Error::Apdu(
+            "[APDU_CODE_BAD_KEY_HANDLE] The parameters in the data field are incorrect".into(),
+        ),
+        0x6B00 => Error::Apdu("[APDU_CODE_INVALIDP1P2] Wrong parameter(s) P1-P2".into()),
+        0x6D00 => Error::Apdu(
+            "[APDU_CODE_INS_NOT_SUPPORTED] Instruction code not supported or invalid".into(),
+        ),
+        0x6E00 => Error::Apdu("[APDU_CODE_CLA_NOT_SUPPORTED] Class not supported".into()),
+        0x6F00 => Error::Apdu("[APDU_CODE_UNKNOWN]".into()),
+        0x6F01 => Error::Apdu("[APDU_CODE_SIGN_VERIFY_ERROR]".into()),
+        _ => Error::Apdu("[APDU_ERROR] Unknown".into()),
     }
 }
 
@@ -277,31 +279,37 @@ impl LedgerApp {
         Ok(1)
     }
 
-    fn read_apdu(&self, _channel: u16, apdu_answer: &mut Vec<u8>) -> Result<usize, Error> {
+    fn read_apdu(&self, channel: u16, apdu_answer: &mut Vec<u8>) -> Result<usize, Error> {
         let mut buffer = vec![0u8; LEDGER_PACKET_SIZE as usize];
         let mut sequence_idx = 0u16;
         let mut expected_apdu_len = 0usize;
 
         loop {
             let res = self.device.read_timeout(&mut buffer, LEDGER_TIMEOUT)?;
-
+            println!("[{:3}] >> {:}", res, hex::encode(&buffer[..res]));
             if (sequence_idx == 0 && res < 7) || res < 5 {
                 return Err(Error::Comm("Read error. Incomplete header"));
             }
 
             let mut rdr = Cursor::new(&buffer);
 
-            let _rcv_channel = rdr.read_u16::<BigEndian>()?;
-            let _rcv_tag = rdr.read_u8()?;
+            let rcv_channel = rdr.read_u16::<BigEndian>()?;
+            let rcv_tag = rdr.read_u8()?;
             let rcv_seq_idx = rdr.read_u16::<BigEndian>()?;
 
             // TODO: Check why windows returns a different channel/tag
-            //        if rcv_channel != channel {
-            //            return Err(Box::from(format!("Invalid channel: {}!={}", rcv_channel, channel )));
-            //        }
-            //        if rcv_tag != 0x05u8 {
-            //            return Err(Box::from("Invalid tag"));
-            //        }
+            if rcv_channel != channel {
+                return Err(Error::Apdu(format!(
+                    "Invalid channel {:#04x}, expected {:#04x}",
+                    rcv_channel, channel
+                )));
+            }
+            if rcv_tag != 0x05u8 {
+                return Err(Error::Apdu(format!(
+                    "Invalid tag {:#02x}, expected 0x05",
+                    rcv_tag
+                )));
+            }
 
             if rcv_seq_idx != sequence_idx {
                 return Err(Error::Comm("Invalid sequence idx"));
@@ -318,7 +326,7 @@ impl LedgerApp {
             let new_chunk = &buffer[rdr.position() as usize..end_p];
 
             if self.logging {
-                println!("[{:3}] << {:}", new_chunk.len(), hex::encode(&new_chunk));
+                println!("[{:3}] >> {:}", new_chunk.len(), hex::encode(&new_chunk));
             }
 
             apdu_answer.extend_from_slice(new_chunk);
