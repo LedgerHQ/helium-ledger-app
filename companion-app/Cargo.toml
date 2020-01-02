@@ -16,3 +16,7 @@ rust_decimal = "1.0.3"
 prost = "0.5"
 sha2 = "0.8.0"
 qr2term = "0.1"
+
+[patch.crates-io]
+hidapi = { version = "1.1.0", path = "vendor/hidapi-rs" }
+ledger = { version = "0.2.5", path = "vendor/ledger-rs" }
